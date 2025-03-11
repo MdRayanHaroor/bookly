@@ -38,12 +38,12 @@ class DefaultFirebaseOptions {
 
   // Replace these values with the ones from your Firebase project configuration
   static FirebaseOptions get android => FirebaseOptions(
-        apiKey: dotenv.env['API_KEY']!,
-        appId: dotenv.env['APP_ID']!,
-        messagingSenderId: dotenv.env['MESSAGING_SENDER_ID']!,
-        projectId: dotenv.env['PROJECT_ID']!,
-        storageBucket: dotenv.env['STORAGE_BUCKET']!,
-      );
+      apiKey: dotenv.env['API_KEY'] ?? 'missing-api-key',
+      appId: dotenv.env['APP_ID'] ?? 'missing-app-id',
+      messagingSenderId: dotenv.env['MESSAGING_SENDER_ID'] ?? 'missing-sender-id',
+      projectId: dotenv.env['PROJECT_ID'] ?? 'missing-project-id',
+      storageBucket: dotenv.env['STORAGE_BUCKET'] ?? 'missing-storage-bucket',
+    );
 
   // Replace these values with the ones from your Firebase project configuration
   static const FirebaseOptions ios = FirebaseOptions(

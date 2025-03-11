@@ -10,21 +10,24 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+  await dotenv.load();
+
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+    // Check if Firebase is already initialized by getting the default app
+    Firebase.app();
+    print('Firebase already initialized');
   } catch (e) {
-    if (e is FirebaseException && e.code == 'duplicate-app') {
-      // Firebase already initialized, get the existing instance
-      Firebase.app();
-    } else {
-      // If it's a different error, rethrow it
-      rethrow;
+    // If we get here, Firebase hasn't been initialized yet
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      print('Firebase initialized successfully');
+    } catch (error) {
+      print('Firebase initialization error: $error');
     }
   }
-  
+
   runApp(
     ChangeNotifierProvider(
       create: (_) => ThemeProvider(),
