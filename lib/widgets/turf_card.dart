@@ -1,173 +1,253 @@
-// widgets/turf_card.dart
 import 'package:flutter/material.dart';
 import 'package:bookly/models/turf.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-class TurfCard extends StatelessWidget {
+class TurfCard extends StatefulWidget {
   final Turf turf;
   final VoidCallback onTap;
 
-  const TurfCard({
-    Key? key,
+  TurfCard({
     required this.turf,
     required this.onTap,
-  }) : super(key: key);
+  });
 
-  // Helper function to safely get image URL or return placeholder
-  String _getImageUrl() {
-    if (turf.imageUrls.isNotEmpty) {
-      final url = turf.imageUrls[0];
-      // Check if using the placeholder URL format from Firebase
-      if (url.contains('your-project-id')) {
-        // Return a valid placeholder instead
-        return 'https://via.placeholder.com/400x200?text=Turf+Image';
-      }
-      return url;
+  @override
+  _TurfCardState createState() => _TurfCardState();
+}
+
+class _TurfCardState extends State<TurfCard> {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  double _rating = 0;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRating();
+  }
+
+  Future<void> _loadRating() async {
+    if (widget.turf.id == null || widget.turf.id.isEmpty) {
+      setState(() {
+        _isLoading = false;
+      });
+      return;
     }
-    return 'https://via.placeholder.com/400x200?text=No+Image';
+
+    try {
+      final snapshot = await _firestore
+          .collection('reviews')
+          .where('turfId', isEqualTo: widget.turf.id)
+          .get();
+
+      if (snapshot.docs.isEmpty) {
+        setState(() {
+          _rating = 0;
+          _isLoading = false;
+        });
+        return;
+      }
+
+      double totalRating = 0;
+      for (var doc in snapshot.docs) {
+        var data = doc.data();
+        if (data.containsKey('rating')) {
+          double rating = data['rating'] is int
+              ? (data['rating'] as int).toDouble()
+              : (data['rating'] ?? 0.0).toDouble();
+          totalRating += rating;
+        }
+      }
+
+      setState(() {
+        _rating = snapshot.docs.isEmpty ? 0 : totalRating / snapshot.docs.length;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading rating for turf ${widget.turf.id}: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Widget _buildRatingStars() {
+    if (_isLoading) {
+      return Container(
+        width: 60,
+        height: 14,
+        child: LinearProgressIndicator(
+          backgroundColor: Colors.grey[300],
+        ),
+      );
+    }
+
+    if (_rating == 0) {
+      return Text(
+        'No ratings yet',
+        style: TextStyle(
+          fontSize: 12,
+          fontStyle: FontStyle.italic,
+          color: Colors.grey,
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ...List.generate(5, (index) {
+          double difference = _rating - index;
+          IconData icon;
+          
+          if (difference >= 1) {
+            icon = Icons.star; // Full star
+          } else if (difference > 0) {
+            icon = Icons.star_half; // Half star
+          } else {
+            icon = Icons.star_border; // Empty star
+          }
+          
+          return Icon(
+            icon,
+            color: Colors.amber,
+            size: 14,
+          );
+        }),
+        
+        SizedBox(width: 4),
+        
+        Text(
+          _rating.toStringAsFixed(1),
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    // Detect if we're in dark mode
+    final isDarkTheme = Theme.of(context).brightness == Brightness.dark;
+    
+    // Define theme-adaptive colors
+    final primaryTextColor = isDarkTheme ? Colors.white : Colors.black87;
+    final secondaryTextColor = isDarkTheme ? Colors.grey[300] : Colors.grey[700];
+    
     return Card(
-      margin: EdgeInsets.only(bottom: 16),
+      margin: EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
       ),
-      elevation: 2,
       child: InkWell(
-        onTap: onTap,
+        onTap: widget.onTap,
         borderRadius: BorderRadius.circular(12),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Turf image with better error handling
+            // Image section
             ClipRRect(
               borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-              child: Image.network(
-                _getImageUrl(),
-                height: 160,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    height: 160,
-                    color: Colors.grey[300],
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.image, size: 50, color: Colors.grey[600]),
-                          SizedBox(height: 8),
-                          Text(
-                            'Image not available',
-                            style: TextStyle(color: Colors.grey[600]),
+              child: widget.turf.imageUrls.isNotEmpty
+                  ? Image.network(
+                      widget.turf.imageUrls[0],
+                      height: 150,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          height: 150,
+                          color: isDarkTheme ? Colors.grey[800] : Colors.grey[300],
+                          child: Center(
+                            child: Icon(
+                              Icons.image, 
+                              size: 50, 
+                              color: isDarkTheme ? Colors.grey[600] : Colors.grey[500],
+                            ),
                           ),
-                        ],
+                        );
+                      },
+                    )
+                  : Container(
+                      height: 150,
+                      color: isDarkTheme ? Colors.grey[800] : Colors.grey[300],
+                      child: Center(
+                        child: Icon(
+                          Icons.image, 
+                          size: 50, 
+                          color: isDarkTheme ? Colors.grey[600] : Colors.grey[500],
+                        ),
                       ),
                     ),
-                  );
-                },
-              ),
             ),
             
-            // Turf details
+            // Content section
             Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(12.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Turf name
-                  Text(
-                    turf.name,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  // Title and rating row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.turf.name,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: primaryTextColor,
+                          ),
+                        ),
+                      ),
+                      // Rating stars
+                      _buildRatingStars(),
+                    ],
                   ),
-                  SizedBox(height: 8),
+                  
+                  SizedBox(height: 4),
                   
                   // Location
                   Row(
                     children: [
-                      Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
+                      Icon(Icons.location_on, size: 16, color: secondaryTextColor),
                       SizedBox(width: 4),
                       Expanded(
                         child: Text(
-                          turf.location,
+                          widget.turf.location,
                           style: TextStyle(
-                            color: Colors.grey[600],
+                            color: secondaryTextColor,
                           ),
                         ),
                       ),
                     ],
                   ),
-                  SizedBox(height: 12),
                   
-                  // Available sports
-                  Text(
-                    'Available Sports:',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w500,
-                      fontSize: 14,
-                    ),
-                  ),
                   SizedBox(height: 8),
                   
                   // Sports tags
-                  turf.sports.isNotEmpty
-                      ? Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: turf.sports.map((sport) {
-                            return Container(
-                              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Theme.of(context).primaryColor.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: Theme.of(context).primaryColor.withOpacity(0.3),
-                                ),
-                              ),
-                              child: Text(
-                                sport,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Theme.of(context).primaryColor,
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        )
-                      : Text(
-                          'No sports information available',
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: widget.turf.sports.map((sport) {
+                      return Container(
+                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).primaryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          sport,
                           style: TextStyle(
-                            color: Colors.grey[600],
-                            fontStyle: FontStyle.italic,
                             fontSize: 12,
+                            color: Theme.of(context).primaryColor,
                           ),
                         ),
-                  
-                  // Amenities
-                  SizedBox(height: 12),
-                  if (turf.amenities.isNotEmpty) ...[
-                    Row(
-                      children: [
-                        Icon(Icons.check_circle_outline, size: 16, color: Colors.green),
-                        SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            turf.amenities.join(', '),
-                            style: TextStyle(
-                              color: Colors.grey[700],
-                              fontSize: 12,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                      );
+                    }).toList(),
+                  ),
                 ],
               ),
             ),

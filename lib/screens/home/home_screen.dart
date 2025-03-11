@@ -8,13 +8,14 @@ import 'package:bookly/screens/contact/contact_screen.dart';
 import 'package:bookly/services/auth_service.dart';
 import 'package:bookly/services/turf_service.dart';
 import 'package:bookly/widgets/turf_card.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
   _HomeScreenState createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final TurfService _turfService = TurfService();
   final AuthService _authService = AuthService();
   List<Turf> _turfs = [];
@@ -31,8 +32,25 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    // Add observer to detect when app resumes
+    WidgetsBinding.instance.addObserver(this);
     _loadTurfs();
     _loadUserData();
+  }
+
+  @override
+  void dispose() {
+    // Remove observer when widget is disposed
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Refresh data when app resumes
+    if (state == AppLifecycleState.resumed) {
+      _loadTurfs();
+    }
   }
 
   Future<void> _loadTurfs() async {
@@ -132,6 +150,21 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  void _navigateToTurfDetails(Turf turf) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TurfDetailsScreen(turf: turf),
+      ),
+    ).then((_) {
+      // Refresh the turfs data when returning from the details screen
+      // This ensures ratings and reviews are up to date
+      if (mounted) {
+        _loadTurfs();
+      }
+    });
+  }
+
   void _onItemTapped(int index) {
     // Check if the widget is still mounted
     if (!mounted) return;
@@ -151,6 +184,8 @@ class _HomeScreenState extends State<HomeScreen> {
             setState(() {
               _selectedIndex = 0;
             });
+            // Refresh data when returning from bookings
+            _loadTurfs();
           }
         });
       }
@@ -217,6 +252,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ).then((_) {
                 // Reload user data when returning from profile screen
                 _loadUserData();
+                // Also refresh turfs as user profile might affect recommendations
+                _loadTurfs();
               });
             },
           ),
@@ -228,7 +265,10 @@ class _HomeScreenState extends State<HomeScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => SettingsScreen()),
-              );
+              ).then((_) {
+                // Settings might change display preferences, refresh
+                if (mounted) setState(() {});
+              });
             },
           ),
           ListTile(
@@ -376,133 +416,193 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       Container(
-                        height: 200,
+  height: 200,
+  child: ListView.builder(
+    scrollDirection: Axis.horizontal,
+    itemCount: _filteredTurfs.length > 3 ? 3 : _filteredTurfs.length,
+    itemBuilder: (context, index) {
+      final turf = _filteredTurfs[index];
+      return Container(
+        width: 280,
+        margin: EdgeInsets.only(left: 16, right: index == (_filteredTurfs.length > 3 ? 2 : _filteredTurfs.length - 1) ? 16 : 0),
+        decoration: BoxDecoration(
+          color: cardBgColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: cardBorderColor!),
+        ),
+        child: GestureDetector(
+          onTap: () => _navigateToTurfDetails(turf),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+                child: Image.network(
+                  turf.imageUrls.isNotEmpty 
+                      ? turf.imageUrls[0]
+                      : 'https://via.placeholder.com/280x120',
+                  height: 100,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      height: 110,
+                      color: isDarkTheme ? Colors.grey[800] : Colors.grey[300],
+                      child: Center(
+                        child: Icon(
+                          Icons.image, 
+                          size: 50, 
+                          color: isDarkTheme ? Colors.grey[600] : Colors.grey[500],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Title and rating row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            turf.name,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: primaryTextColor,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        // Rating stars using StreamBuilder
+                        StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('reviews')
+                              .where('turfId', isEqualTo: turf.id)
+                              .snapshots(),
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState == ConnectionState.waiting) {
+                              return Container(
+                                width: 50,
+                                height: 10,
+                                child: LinearProgressIndicator(
+                                  backgroundColor: isDarkTheme ? Colors.grey[700] : Colors.grey[300],
+                                ),
+                              );
+                            }
+                            
+                            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                              return Text(
+                                'New',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontStyle: FontStyle.italic,
+                                  color: Colors.grey,
+                                ),
+                              );
+                            }
+                            
+                            // Calculate average rating
+                            double totalRating = 0;
+                            snapshot.data!.docs.forEach((doc) {
+                              final data = doc.data() as Map<String, dynamic>;
+                              if (data.containsKey('rating')) {
+                                double rating = data['rating'] is int
+                                    ? (data['rating'] as int).toDouble()
+                                    : (data['rating'] ?? 0.0).toDouble();
+                                totalRating += rating;
+                              }
+                            });
+                            
+                            double avgRating = totalRating / snapshot.data!.docs.length;
+                            
+                            return Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.star, color: Colors.amber, size: 14),
+                                SizedBox(width: 2),
+                                Text(
+                                  avgRating.toStringAsFixed(1),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.location_on, size: 14, color: secondaryTextColor),
+                        SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            turf.location,
+                            style: TextStyle(
+                              color: secondaryTextColor,
+                              fontSize: 12,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    // Display sports instead of price
+                    turf.sports != null && turf.sports.isNotEmpty
+                    ? Container(
+                        height: 16,
                         child: ListView.builder(
                           scrollDirection: Axis.horizontal,
-                          itemCount: _filteredTurfs.length > 3 ? 3 : _filteredTurfs.length,
-                          itemBuilder: (context, index) {
+                          itemCount: turf.sports.length,
+                          itemBuilder: (context, sportIndex) {
                             return Container(
-                              width: 280,
-                              margin: EdgeInsets.only(left: 16, right: index == (_filteredTurfs.length > 3 ? 2 : _filteredTurfs.length - 1) ? 16 : 0),
+                              margin: EdgeInsets.only(right: 4),
+                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
-                                color: cardBgColor,
+                                color: Theme.of(context).primaryColor.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: cardBorderColor!),
                               ),
-                              child: GestureDetector(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => TurfDetailsScreen(turf: _filteredTurfs[index]),
-                                    ),
-                                  );
-                                },
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-                                      child: Image.network(
-                                        _filteredTurfs[index].imageUrls.isNotEmpty 
-                                            ? _filteredTurfs[index].imageUrls[0]
-                                            : 'https://via.placeholder.com/280x120',
-                                        height: 100,
-                                        width: double.infinity,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (context, error, stackTrace) {
-                                          return Container(
-                                            height: 110,
-                                            color: isDarkTheme ? Colors.grey[800] : Colors.grey[300],
-                                            child: Center(
-                                              child: Icon(
-                                                Icons.image, 
-                                                size: 50, 
-                                                color: isDarkTheme ? Colors.grey[600] : Colors.grey[500],
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.all(12.0),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            _filteredTurfs[index].name,
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 16,
-                                              color: primaryTextColor,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                          SizedBox(height: 4),
-                                          Row(
-                                            children: [
-                                              Icon(Icons.location_on, size: 14, color: secondaryTextColor),
-                                              SizedBox(width: 4),
-                                              Expanded(
-                                                child: Text(
-                                                  _filteredTurfs[index].location,
-                                                  style: TextStyle(
-                                                    color: secondaryTextColor,
-                                                    fontSize: 12,
-                                                  ),
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          SizedBox(height: 8),
-                                          // Display sports instead of price
-                                          _filteredTurfs[index].sports != null && _filteredTurfs[index].sports.isNotEmpty
-                                          ? Container(
-                                              height: 16,
-                                              child: ListView.builder(
-                                                scrollDirection: Axis.horizontal,
-                                                itemCount: _filteredTurfs[index].sports.length,
-                                                itemBuilder: (context, sportIndex) {
-                                                  return Container(
-                                                    margin: EdgeInsets.only(right: 4),
-                                                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                                    decoration: BoxDecoration(
-                                                      color: Theme.of(context).primaryColor.withOpacity(0.1),
-                                                      borderRadius: BorderRadius.circular(12),
-                                                    ),
-                                                    child: Text(
-                                                      _filteredTurfs[index].sports[sportIndex],
-                                                      style: TextStyle(
-                                                        fontSize: 10,
-                                                        color: Theme.of(context).primaryColor,
-                                                      ),
-                                                    ),
-                                                  );
-                                                },
-                                              ),
-                                            )
-                                          : Text(
-                                              'No sports info available',
-                                              style: TextStyle(
-                                                color: secondaryTextColor,
-                                                fontSize: 12,
-                                                fontStyle: FontStyle.italic,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
+                              child: Text(
+                                turf.sports[sportIndex],
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Theme.of(context).primaryColor,
                                 ),
                               ),
                             );
                           },
                         ),
+                      )
+                    : Text(
+                        'No sports info available',
+                        style: TextStyle(
+                          color: secondaryTextColor,
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                        ),
                       ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  ),
+),
                     ],
                     
                     // All turfs section
@@ -538,18 +638,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
                             itemCount: _filteredTurfs.length,
                             itemBuilder: (context, index) {
-                              // Note: Assuming TurfCard is already updated for dark theme
-                              // If not, you'll need to modify TurfCard.dart as well
                               return TurfCard(
                                 turf: _filteredTurfs[index],
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => TurfDetailsScreen(turf: _filteredTurfs[index]),
-                                    ),
-                                  );
-                                },
+                                onTap: () => _navigateToTurfDetails(_filteredTurfs[index]),
                               );
                             },
                           ),
