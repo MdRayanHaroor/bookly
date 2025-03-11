@@ -1,6 +1,8 @@
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
@@ -35,13 +37,13 @@ class DefaultFirebaseOptions {
   }
 
   // Replace these values with the ones from your Firebase project configuration
-  static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyA4ENaWcJ42kU4V4g_ysaldkRhWikLBXGw',
-    appId: '1:447906128798:android:b55c38c3ad3af2955e2c8f',
-    messagingSenderId: '447906128798',
-    projectId: 'bookly-22006',
-    storageBucket: 'bookly-22006.appspot.com',
-  );
+  static FirebaseOptions get android => FirebaseOptions(
+        apiKey: dotenv.env['API_KEY']!,
+        appId: dotenv.env['APP_ID']!,
+        messagingSenderId: dotenv.env['MESSAGING_SENDER_ID']!,
+        projectId: dotenv.env['PROJECT_ID']!,
+        storageBucket: dotenv.env['STORAGE_BUCKET']!,
+      );
 
   // Replace these values with the ones from your Firebase project configuration
   static const FirebaseOptions ios = FirebaseOptions(
